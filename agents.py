@@ -5,18 +5,73 @@ import torch
 import torch.optim as optim
 import torch.nn.functional as F
 from model import DeterministicActor, QCritic
-from utils import OUNoise
+from utils import OUNoise, soft_update
 
 
 # ========== DDPG Agent =============
 
 
 class DDPGAgent:
+    """
+    Class for implementing a Deep Deterministic Policy Gradient (DDPG) agent.
+
+    Attributes
+    ----------
+    actor : number
+        Noise mean.
+    critic : number
+        Mean attraction constant.
+    target_actor : number
+        Noise variance.
+    target_critic : number
+        Minimum variance.
+    noise_model : number
+        Variance decay rate.
+    size : number
+        Size of noise.
+
+    Methods
+    -------
+    step():
+        Step the OU noise model by computing the noise and decaying variance.
+        
+    """
     
     def __init__(self, actor, critic, target_actor, target_critic, buffer, params):
         """
         Initialize a Deep Deterministic Policy Gradient (DDPG) agent.
-        
+
+        Parameters
+        ----------
+        actor : model.DeterministicActor
+            Deterministic actor object..
+        critic : model.QCritic
+            Critic object.
+        target_actor : model.DeterministicActor
+            Target actor object.
+        target_critic : model.QCritic
+            Target critic object.
+        buffer : utils.ExperienceBuffer
+            Experience buffer object.
+        params : dict
+            Dictionary of DDPG hyperparameters containing the following keys:
+                GAMMA        : Discount factor
+                BATCH_SIZE   : Batch size for training.
+                TAU          : Target network smooth factor.
+                ACTOR_LR     : Learn rate for actor network.
+                CRITIC_LR    : Learn rate for critic network.
+                UPDATE_FREQ  : Frequency of target network updates.
+                TRAIN_ITERS  : Number of training iterations per learn step.
+                NOISE_MEAN   : Mean of the OU Noise.
+                NOISE_MAC    : Mean attraction constant of OU Noise.
+                NOISE_VAR    : Variance of OU Noise.
+                NOISE_VARMIN : Minimum variance of OU Noise.
+                NOISE_DECAY  : Decay rate of OU Noise variance.
+
+        Returns
+        -------
+        None.
+
         """
         
         # parameters
@@ -60,11 +115,24 @@ class DDPGAgent:
         """
         Get the action by sampling from the policy. If train is set to True 
         then the action contains added noise.
-        
+
+        Parameters
+        ----------
+        state : numpy.ndarray
+            State of the environment.
+        train : boolean, optional
+            Flag for train mode. The default is False.
+
+        Returns
+        -------
+        action : numpy.ndarray
+            Action sampled from the agent's actor, with optional added noise. 
+            The action is clipped within -1 and 1. 
+
         """
         
         with torch.no_grad():
-            action = self.actor.mu(state).cpu().numpy()
+            action = self.actor.action(state).cpu().numpy()
             
         # If in train mode then add noise
         if train:
@@ -81,7 +149,26 @@ class DDPGAgent:
     def step(self, state, action, reward, next_state, done, train=True):
         """
         Step the agent, store experiences and learn.
-            
+
+        Parameters
+        ----------
+        state : numpy.ndarray
+            State of the environment.
+        action : numpy.ndarray
+            Action from the agent.
+        reward : numpy.ndarray
+            Reward for taking the action.
+        next_state : numpy.ndarray
+            Next states of the environment.
+        done : numpy.ndarray
+            Flag for termination.
+        train : boolean, optional
+            Flag for train mode. The default is True.
+
+        Returns
+        -------
+        None.
+
         """
         
         # add experience to replay
@@ -105,8 +192,17 @@ class DDPGAgent:
     
     def learn(self, experiences):
         """
-        Train the actor and critic.
-        
+        Train the actor and critic networks from experiences.
+
+        Parameters
+        ----------
+        experiences : List
+            Sampled experiences from buffer.
+
+        Returns
+        -------
+        None.
+
         """
         
         # unpack experience
@@ -114,7 +210,7 @@ class DDPGAgent:
         
         # compute td targets
         with torch.no_grad():
-            target_action = self.target_actor.mu(next_states)
+            target_action = self.target_actor.action(next_states)
             targetQ = self.target_critic.Q(next_states,target_action)
             y = rewards + self.gamma * targetQ * (1-dones)
         
@@ -135,7 +231,7 @@ class DDPGAgent:
             p.requires_grad = False
         
         # actor loss
-        actor_loss = -self.critic.Q(states, self.actor.mu(states)).mean()
+        actor_loss = -self.critic.Q(states, self.actor.action(states)).mean()
         
         # update actor
         self.actor_optimizer.zero_grad()
@@ -150,21 +246,14 @@ class DDPGAgent:
         # log the loss and noise
         self.actor_loss_log.append(actor_loss.detach().cpu().numpy())
         self.critic_loss_log.append(critic_loss.detach().cpu().numpy())
-        #self.noise_log.append(np.mean(self.noise_model.x))
         
         # soft update target actor and critic
         if self.step_count % self.update_freq == 0:
-            self.soft_update(self.target_actor, self.actor)
-            self.soft_update(self.target_critic, self.critic)
+            soft_update(self.target_actor, self.actor, self.tau)
+            soft_update(self.target_critic, self.critic, self.tau)
             
-    
-    def soft_update(self, target_model, model):
-        """
-        Soft update target networks.
-        """
-        with torch.no_grad():
-            for target_params, params in zip(target_model.parameters(), model.parameters()):
-                target_params.data.copy_(self.tau*params + (1-self.tau)*target_params.data)
-    
-    
+
+
+
+
 

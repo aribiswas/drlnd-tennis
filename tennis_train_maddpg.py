@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from unityagents import UnityEnvironment
-from utils import OUNoise, ExperienceBuffer, get_action, soft_update
+from utils import OUNoise, ExperienceBuffer, action_with_noise, soft_update
 from model import DeterministicActor, CentralizedCritic
 from matplotlib import pyplot as plt
 import numpy as np
@@ -103,8 +103,8 @@ for ep_count in range(1,MAX_EPISODES):
         noise_log.append([noise_model_0.var,noise_model_1.var])
         
         # sample action from the current policy
-        act1 = get_action(actors[0], states[0], noise_0, train=True)
-        act2 = get_action(actors[1], states[1], noise_1, train=True)
+        act1 = action_with_noise(actors[0], states[0], noise_0, train=True)
+        act2 = action_with_noise(actors[1], states[1], noise_1, train=True)
         actions = np.stack([act1,act2]).reshape([num_agents,asize])
         #print(actions)
         
@@ -153,8 +153,8 @@ for ep_count in range(1,MAX_EPISODES):
                     NO1 = NS[:,:osize]
                     NO2 = NS[:,osize:]
                     # target actions (decentralized execution)
-                    TA1 = target_actors[0].mu(NO1) 
-                    TA2 = target_actors[1].mu(NO2)
+                    TA1 = target_actors[0].action(NO1) 
+                    TA2 = target_actors[1].action(NO2)
                     # target critic value
                     tQ = target_critics[i].Q(NS,TA1,TA2)
                     # target value
@@ -186,8 +186,8 @@ for ep_count in range(1,MAX_EPISODES):
                 # dont use A here, compute actions again. These will have grad
                 O1 = S[:,:osize]
                 O2 = S[:,osize:]
-                A1 = actors[0].mu(O1)   # get action from current policy
-                A2 = actors[1].mu(O2)
+                A1 = actors[0].action(O1)   # get action from current policy
+                A2 = actors[1].action(O2)
                 actor_loss = -critics[i].Q(S,A1,A2).mean()  # -ve sign for gradient ascent
                 
                 # update actor network

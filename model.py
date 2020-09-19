@@ -4,19 +4,69 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from utils import convert_to_tensor
 
 def hidden_init(layer):
+    """
+    Initialize hidden layer.
+
+    Parameters
+    ----------
+    layer : torch.nn layer
+        Hidden layer.
+
+    Returns
+    -------
+    TYPE
+        Tuple.
+    lim : number
+        Scalar limit.
+
+    """
     fan_in = layer.weight.data.size()[0]
     lim = 1. / np.sqrt(fan_in)
     return (-lim, lim)
 
-
-"""
-Actor class representing a deterministic policy mu(s). 
-"""
 class DeterministicActor(nn.Module):
+    """
+    Actor class representing a deterministic policy. 
+
+    Attributes
+    ----------
+    num_obs : number
+        Size of states.
+    num_act : number
+        Size of actions.
+
+    Methods
+    -------
+    reset_parameters():
+        Resets the weights of the layers.
+    forward(state):
+        Perform forward pass through the network.
+    action(state):
+        Sample action from the policy, given the state.
+        
+    """
     
     def __init__(self, num_obs, num_act, seed=0):
+        """
+        Initialize actor network.
+
+        Parameters
+        ----------
+        num_obs : number
+            Size of observations.
+        num_act : number
+            Size of actions.
+        seed : number, optional
+            Random seed. The default is 0.
+
+        Returns
+        -------
+        None.
+
+        """
         
         torch.manual_seed(seed)
 
@@ -26,15 +76,24 @@ class DeterministicActor(nn.Module):
         self.num_act = num_act
 
         # layers
-        self.fc1 = nn.Linear(num_obs,256)
-        self.fc2 = nn.Linear(256,128)
-        self.fc3 = nn.Linear(128,num_act)
-        self.tanh = nn.Tanh()
+        self.fc1    = nn.Linear(num_obs,256)
+        self.fc2    = nn.Linear(256,128)
+        self.fc3    = nn.Linear(128,num_act)
+        self.tanh   = nn.Tanh()
         self.reset_parameters()
 
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         
     def reset_parameters(self):
+        """
+        Reset network weights.
+
+        Returns
+        -------
+        None.
+
+        """
+        
         self.fc1.weight.data.uniform_(*hidden_init(self.fc1))
         self.fc2.weight.data.uniform_(*hidden_init(self.fc2))
         self.fc3.weight.data.uniform_(-3e-3, 3e-3)
@@ -42,38 +101,92 @@ class DeterministicActor(nn.Module):
     def forward(self, state):
         """
         Perform forward pass through the network.
-        
+
+        Parameters
+        ----------
+        state : numpy.ndarray, torch.Tensor, torch.cuda.FloatTensor
+            State of the environment.
+
+        Returns
+        -------
+        x : torch.Tensor, torch.cuda.FloatTensor
+            Network output.
+
         """
         
         # convert to torch
-        if isinstance(state, np.ndarray):
-            x = torch.from_numpy(state).float().to(self.device)
-        elif isinstance(state, torch.Tensor) or isinstance(state, torch.cuda.FloatTensor):
-            x = state
-        else:
-            raise TypeError("Input must be a numpy array or torch Tensor.")
+        x = convert_to_tensor(state, self.device)
         
+        # forward pass
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = self.tanh(self.fc3(x))  # restrict action from -1 to 1 using tanh
+        
         return x
         
         
-    def mu(self, state):
+    def action(self, state):
         """
-        Get the deterministic policy.
+        Sample action from the policy, given the state.
+
+        Parameters
+        ----------
+        state : numpy.ndarray, torch.Tensor, torch.cuda.Float
+            State of the environment.
+        
+        Returns
+        -------
+        torch.Tensor, torch.cuda.Float
+            Sampled action.
+
         """
         
         return self.forward(state)
     
 
-"""
-Critic class for approximating the state-action value function Q(s,a1,...an). 
 
-"""
 class CentralizedCritic(nn.Module):
+    """
+    Critic class for approximating the state-action value function Q(s,a1,a2).
+
+    Attributes
+    ----------
+    num_states : number
+        Size of states.
+    num_act1 : number
+        Size of action of first agent.
+    num_act2 : number
+        Size of action of second agent.
+
+    Methods
+    -------
+    forward(state,action1,action2):
+        Perform forward pass through the network.
+    Q(state,action1,action2):
+        Compute the state-action value Q(s,a1,a2).
+        
+    """
 
     def __init__(self, num_states, num_act1, num_act2, seed=0):
+        """
+        Initialize critic network.
+
+        Parameters
+        ----------
+        num_states : number
+            Size of states.
+        num_act1 : number
+            Size of action of first agent..
+        num_act2 : number
+            Size of action of second agent..
+        seed : number, optional
+            Random seed. The default is 0.
+
+        Returns
+        -------
+        None.
+
+        """
         
         torch.manual_seed(seed)
 
@@ -106,32 +219,29 @@ class CentralizedCritic(nn.Module):
     def forward(self, state, action1, action2):
         """
         Perform forward pass through the network.
-        
+
+        Parameters
+        ----------
+        state : numpy.ndarray, torch.Tensor, torch.cuda.FloatTensor
+            State of the environment.
+        action1 : numpy.ndarray, torch.Tensor, torch.cuda.FloatTensor
+            Action of first agent.
+        action2 : numpy.ndarray, torch.Tensor, torch.cuda.FloatTensor
+            Action of second agent.
+
+        Returns
+        -------
+        xc : torch.Tensor, torch.cuda.FloatTensor
+            Network output.
+
         """
         
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         
         # convert to torch
-        if isinstance(state, np.ndarray):
-            s = torch.from_numpy(state).float().to(device)
-        elif isinstance(state, torch.Tensor) or isinstance(state, torch.cuda.FloatTensor):
-            s = state
-        else:
-            raise TypeError("Input must be a numpy array or torch Tensor.")
-            
-        if isinstance(action1, np.ndarray):
-            a1 = torch.from_numpy(action1).float().to(device)
-        elif isinstance(action1, torch.Tensor) or isinstance(action1, torch.cuda.FloatTensor):
-            a1 = action1
-        else:
-            raise TypeError("Input must be a numpy array or torch Tensor.")
-            
-        if isinstance(action2, np.ndarray):
-            a2 = torch.from_numpy(action2).float().to(device)
-        elif isinstance(action2, torch.Tensor) or isinstance(action2, torch.cuda.FloatTensor):
-            a2 = action2
-        else:
-            raise TypeError("Input must be a numpy array or torch Tensor.")
+        s = convert_to_tensor(state,device)
+        a1 = convert_to_tensor(action1,device)
+        a2 = convert_to_tensor(action2,device)
             
         isbatch = True if len(s.size())>1 else False
 
@@ -162,22 +272,65 @@ class CentralizedCritic(nn.Module):
 
     def Q(self, state, action1, action2):
         """
-        Compute Q(s,a)
+        Compute the state-action value Q(s,a1,a2).
+
+        Parameters
+        ----------
+        state : numpy.ndarray, torch.Tensor, torch.cuda.FloatTensor
+            State of the environment.
+        action1 : numpy.ndarray, torch.Tensor, torch.cuda.FloatTensor
+            Action of first agent.
+        action2 : numpy.ndarray, torch.Tensor, torch.cuda.FloatTensor
+            Action of second agent.
+
+        Returns
+        -------
+        torch.Tensor, torch.cuda.FloatTensor
+            State-action value Q(s,a).
+
         """
         
         return self.forward(state, action1, action2)
     
     
-"""
-Critic class for approximating the state-action value function Q(s,a). 
 
-"""
 class QCritic(nn.Module):
+    """
+    Critic class for approximating the state-action value function Q(s,a).
+
+    Attributes
+    ----------
+    num_obs : number
+        Size of states.
+    num_act : number
+        Size of actions.
+
+    Methods
+    -------
+    forward(state):
+        Perform forward pass through the network.
+    action(state):
+        Sample action from the policy, given the state.
+        
+    """
 
     def __init__(self, num_obs, num_act, seed=0):
         """
-        Initialize a Q-value critic network.
-        
+        Initialize critic network.
+
+        Parameters
+        ----------
+        num_obs : number
+            Size of states.
+        num_act : number
+            Size of action.
+        seed : number, optional
+            Random seed. The default is 0.
+
+        Returns
+        -------
+        None.
+
         """
 
         super(QCritic, self).__init__()
@@ -192,37 +345,46 @@ class QCritic(nn.Module):
         self.cfc1 = nn.Linear(256+num_act,128)
         self.cfc2 = nn.Linear(128,1)
         self.reset_parameters()
-
+        
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        
+        
     def reset_parameters(self): 
         """
-        Reset network weights
-        
+        Reset network weights.
+
+        Returns
+        -------
+        None.
+
         """
         
         self.sfc1.weight.data.uniform_(*hidden_init(self.sfc1))
         self.cfc1.weight.data.uniform_(*hidden_init(self.cfc1))
         self.cfc2.weight.data.uniform_(-3e-3, 3e-3)
         
+        
     def forward(self, state, action):
         """
         Perform forward pass through the network.
-        
+
+        Parameters
+        ----------
+        state : numpy.ndarray, torch.Tensor, torch.cuda.FloatTensor
+            State of the environment.
+        action : numpy.ndarray, torch.Tensor, torch.cuda.FloatTensor
+            Action of the agent.
+
+        Returns
+        -------
+        xc : torch.Tensor, torch.cuda.FloatTensor
+            Network output.
+
         """
         
         # convert to torch
-        if isinstance(state, np.ndarray):
-            s = torch.from_numpy(state).float().to(self.device)
-        elif isinstance(state, torch.Tensor):
-            s = state
-        else:
-            raise TypeError("Input must be a numpy array or torch Tensor.")
-            
-        if isinstance(action, np.ndarray):
-            a = torch.from_numpy(action).float().to(self.device)
-        elif isinstance(action, torch.Tensor):
-            a = action
-        else:
-            raise TypeError("Input must be a numpy array or torch Tensor.")
+        s = convert_to_tensor(state,self.device)
+        a = convert_to_tensor(action,self.device)
 
         xs = F.relu(self.sfc1(s))
         xc = torch.cat((xs,a), dim=1)
@@ -234,7 +396,22 @@ class QCritic(nn.Module):
 
     def Q(self, state, action):
         """
-        Compute Q(s,a)
+        Compute the state-action value Q(s,a1,a2).
+
+        Parameters
+        ----------
+        state : numpy.ndarray, torch.Tensor, torch.cuda.FloatTensor
+            State of the environment.
+        action1 : numpy.ndarray, torch.Tensor, torch.cuda.FloatTensor
+            Action of first agent.
+        action2 : numpy.ndarray, torch.Tensor, torch.cuda.FloatTensor
+            Action of second agent.
+
+        Returns
+        -------
+        torch.Tensor, torch.cuda.FloatTensor
+            State-action value Q(s,a).
+
         """
         
         return self.forward(state, action)
