@@ -17,23 +17,25 @@ class DDPGAgent:
 
     Attributes
     ----------
-    actor : number
-        Noise mean.
-    critic : number
-        Mean attraction constant.
-    target_actor : number
-        Noise variance.
-    target_critic : number
-        Minimum variance.
-    noise_model : number
-        Variance decay rate.
-    size : number
-        Size of noise.
+    actor : model.DeterministicActor
+        Deterministic actor object..
+    critic : model.QCritic
+        Critic object.
+    target_actor : model.DeterministicActor
+        Target actor object.
+    target_critic : model.QCritic
+        Target critic object.
+    buffer : utils.ExperienceBuffer
+        Experience buffer object.
 
     Methods
     -------
-    step():
-        Step the OU noise model by computing the noise and decaying variance.
+    get_action(state, train=False):
+        Get the action by sampling from the policy.
+    step(state, action, reward, next_state, done, train=True):
+        Step the agent, store experiences and learn.
+    learn(experiences):
+        Train the actor and critic networks from experiences.
         
     """
     
